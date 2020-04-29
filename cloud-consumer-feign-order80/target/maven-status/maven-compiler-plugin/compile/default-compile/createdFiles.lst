@@ -1,0 +1,4 @@
+com\atguigu\sqpringcloud\config\FeignConfig.class
+com\atguigu\sqpringcloud\service\PaymentFeignService.class
+com\atguigu\sqpringcloud\controller\OrderFeignController.class
+com\atguigu\sqpringcloud\OrderFeignMain80.class

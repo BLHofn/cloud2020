@@ -1,0 +1,111 @@
+1、当直接使用消费者模块插入数据时，可以看到数据库只插入主键，并没有插入内容，
+   要在8001的PaymentController加@RequestBody注解。
+2、打开java的便捷启动服务：
+   edit configurations----Allow parallel run即可，会出现一个services代替run
+3、工程重构：将每个微服务中的实体类entities重构成一份的步骤：
+   1）新建一个模块：new Module（cloud-api-commons）
+   2)将entities包复制到cloud-api-commons
+   3)删除其他模块里面的entities，并修改各自的pom.xml文件。
+     加入以下内容：
+     <!--引入自己定义的api通用包，可以使用Payment支付Entity-->
+     <dependency>
+     	<groupId>com.atguigu.springcloud</groupId>
+         <artifactId>cloud-api-commons</artifactId>
+         <version>${project.version}</version>
+     </dependency>
+4、服务注册中心：
+   1、Eureka：
+   （1）Eureka单机版：
+          1）eureka server:
+             创建module：cloud-eureka-server7001
+             改pom.xml加入以下内容：
+                <!--eureka server-->
+                        <dependency>
+                            <groupId>org.springframework.cloud</groupId>
+                            <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
+                        </dependency>
+             在主启动类EurekaMain7001中加入：@EnableEurekaServer表示开启Eureka server
+          2）eureka client:(cloud-provider-payment8001....)
+             在cloud-provider-payment8001的加入以下内容：
+                 改pom.xml,加入以下内容:
+                  <!--eureka-client-->
+                          <dependency>
+                              <groupId>org.springframework.cloud</groupId>
+                              <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+                          </dependency>
+                 主启动类PaymentMain8001中加入@EnableEurekaClient 开启eurekaclient
+                 application.yml中加入：
+                  eureka:
+                    client:
+                      #表示是否将自己注册进EurekaServer默认为true
+                      register-with-eureka: true
+                      #是否从EurekaServer抓取已有的注册信息，默认为true。单节点无所谓，集群必须设置为true才能配合ribbon使用负载均衡
+                      fetch-registry: true
+                      service-url:
+                        defaultZone: http://localhost:7001/eureka
+          3）eureka的消费者(cloud-consumer-80):
+             在cloud-consumer-80的加入以下内容：
+                 改pom.xml,加入以下内容:
+               <!--eureka-client-->
+                       <dependency>
+                           <groupId>org.springframework.cloud</groupId>
+                           <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+                       </dependency>
+                  主启动类OrderMain80中加入@EnableEurekaClient 开启eurekaclient
+                 application.yml中加入：
+                 spring:
+                   application:
+                     name: cloud-order-server
+
+                 eureka:
+                   client:
+                     #表示是否将自己注册进EurekaServer默认为true
+                     register-with-eureka: true
+                     fetch-registry: true
+                     service-url:
+                       defaultZone: http://localhost:7001/eureka
+   （2）Eureka集群搭建：原则  互相注册、相互守望
+        新建模板：cloud-eureka-7002,然后pom.xml和cloud-eureka-7001相同即可。
+        在cloud-eureka-7002的application.yml中加入以下内容：
+            defaultZone: http://eureka7002.com:7002/eureka/,http://eureka7003.com:7003/eureka/
+        在paymentcontroller中加入：
+            public static String PAYMENT_URL = "http://CLOUD-PAYMENT-SERVICE";//eureka里面的提供服务的大名称即可
+        在cloud-consumer-order80的Applicationcontextconfig类中加入：
+            @LoadBalanced  //赋予RestTemplate负载均衡的能力，轮询
+        在各自支付服务中的application.yml中加入以下内容可以显示ip:
+            instance:
+                instance-id: payment8001
+                prefer-ip-address: true
+         如何暴露微服务的信息（ip、端口号等）？服务的发现Discovery
+           在各自的controller中加入：@Resource
+                                 private DiscoveryClient discoveryClient;
+                //此方法就是展示服务的信息方法
+                    @GetMapping(value = "payment/discovery")
+                    public Object discovery(){
+                        List<String> services = discoveryClient.getServices();
+                        for (String element:services) {
+                            log.info("===element:"+element);
+                        }
+                        List<ServiceInstance> instances = discoveryClient.getInstances("CLOUD-PAYMENT-SERVICE");
+                        for (ServiceInstance instance:instances) {
+                            log.info(instance.getServiceId()+"\t"+instance.getHost()+"\t"+instance.getPort()+"\t"+instance.getUri());
+                        }
+                        return discoveryClient;
+                    }
+           在每个支付服务主启动类加入：@EnableDiscoveryClient//开启服务发现
+        怎样禁止eureka的自我保护机制（eureka的自我保护机制属于CAP中的AP分支）：
+            在eureka服务中的application.yml中加入：
+            server:
+            #    关闭eureka的自我保护机制
+                enable-self-preservation: false
+            #    设置心跳时间上限  2s
+                eviction-interval-timer-in-ms: 2000
+            在eureka客户端中的application.yml中加入：
+            #    Eureka客户端向服务端发送心跳的时间间隔，单位为秒（默认是30秒）
+                lease-renewal-interval-in-seconds: 1
+                #    Eureka服务端在收到最后一次心跳后等待时间上限，
+                #    单位为秒（默认是90秒），超时将会剔除服务
+                lease-expiration-duration-in-seconds: 2
+
+    2、Zookeeper
+   （1）systemctl stop firewalld关闭防火墙
